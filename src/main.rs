@@ -77,6 +77,7 @@ impl SensorDebouncer {
         self.most_likely_brick
     }
 
+    #[allow(dead_code)]
     fn get_readings(&self) -> Vec<BrickColor> {
         self.readings.clone()
     }
@@ -103,21 +104,21 @@ fn main() -> Ev3Result<()> {
 
     // thread for reading sensor data and running debouncer
     let debouncer_sensor = Arc::clone(&debouncer);
-    let debouncer_sensor_handle = thread::spawn(move|| {
+    let debouncer_sensor_handle = thread::spawn(move || {
         loop {
             let reading = sensor.get_color_enum();
             debouncer_sensor.write().unwrap().update(reading);
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            std::thread::sleep(std::time::Duration::from_millis(16));
         }
     });
 
     // thread for main loop only reading from debouncer
     let debouncer_reader = Arc::clone(&debouncer);
-    let main_handle = thread::spawn(move|| {
+    let main_handle = thread::spawn(move || {
         loop {
-            //println!("Current color: {:?}", debouncer.get_most_likely_brick());
-            println!("Readings: {:?}", debouncer_reader.read().unwrap().get_readings());
-            std::thread::sleep(std::time::Duration::from_millis(1000));
+            println!("Current most likely color: {:?}", debouncer_reader.read().unwrap().get_most_likely_brick());
+            //println!("Readings: {:?}", debouncer_reader.read().unwrap().get_readings());
+            std::thread::sleep(std::time::Duration::from_millis(200));
         }
     });
 
