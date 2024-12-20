@@ -1,5 +1,6 @@
 extern crate ev3dev_lang_rust;
 
+use core::time::Duration;
 use ev3dev_lang_rust::motors::{MediumMotor, MotorPort};
 use ev3dev_lang_rust::sensors::{ColorSensor, SensorPort};
 use ev3dev_lang_rust::Ev3Result;
@@ -86,39 +87,51 @@ impl SensorDebouncer {
 fn main() -> Ev3Result<()> {
     println!("Hello, EV3!");
     // Get large motor on port outA.
-    let motor = MediumMotor::get(MotorPort::OutA)?;
+    let conveyor = MediumMotor::get(MotorPort::OutA)?;
+    let kicker = MediumMotor::get(MotorPort::OutB)?;
 
-    // Set command "run-direct".
-    motor.run_direct()?;
+    conveyor.run_direct()?;
+    conveyor.set_duty_cycle_sp(45)?;
 
-    motor.set_duty_cycle_sp(0)?;
+    kicker.run_direct()?;
 
-    let sensor = ColorSensor::get(SensorPort::In1)?;
+    // reset kicker rotary encoder position
+    let _first_pos = kicker.set_position_sp(0)?;
+    kicker.set_duty_cycle_sp(-30)?;
 
-    sensor.set_mode_col_color()?;
 
-    println!("Sensor color: {:?}", sensor.get_color_enum());
+    let s1 = ColorSensor::get(SensorPort::In1)?;
+    let s2 = ColorSensor::get(SensorPort::In2)?;
 
-    let debouncer = Arc::new(RwLock::new(SensorDebouncer::new(10)));
+    s1.set_mode_col_color()?;
+    s2.set_mode_col_color()?;
+
+    let debouncer_s1 = Arc::new(RwLock::new(SensorDebouncer::new(10)));
+    let debouncer_s2 = Arc::new(RwLock::new(SensorDebouncer::new(10)));
 
 
     // thread for reading sensor data and running debouncer
-    let debouncer_sensor = Arc::clone(&debouncer);
+    let debouncer_sensor_s1 = Arc::clone(&debouncer_s1);
+    let debouncer_sensor_s2 = Arc::clone(&debouncer_s2);
     let debouncer_sensor_handle = thread::spawn(move || {
         loop {
-            let reading = sensor.get_color_enum();
-            debouncer_sensor.write().unwrap().update(reading);
-            std::thread::sleep(std::time::Duration::from_millis(16));
+            debouncer_sensor_s1.write().unwrap().update(s1.get_color_enum());
+            debouncer_sensor_s2.write().unwrap().update(s2.get_color_enum());
+            std::thread::sleep(Duration::from_millis(16));
         }
     });
 
     // thread for main loop only reading from debouncer
-    let debouncer_reader = Arc::clone(&debouncer);
+    let s1_debounce_reader = Arc::clone(&debouncer_s1);
+    let s2_debounce_reader = Arc::clone(&debouncer_s2);
     let main_handle = thread::spawn(move || {
         loop {
-            println!("Current most likely color: {:?}", debouncer_reader.read().unwrap().get_most_likely_brick());
+            //println!("s1: {:?}, s2: {:?}", s1.get_color_enum(), s2.get_color_enum());
+            println!("Most likely bricks: s1: {: <8} s2: {: <8}",
+                     s1_debounce_reader.read().unwrap().get_most_likely_brick(),
+                     s2_debounce_reader.read().unwrap().get_most_likely_brick());
             //println!("Readings: {:?}", debouncer_reader.read().unwrap().get_readings());
-            std::thread::sleep(std::time::Duration::from_millis(200));
+            std::thread::sleep(Duration::from_millis(200));
         }
     });
 

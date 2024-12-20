@@ -8,3 +8,6 @@ ev3dev-lang-rust = { version="0.14.0", default-features=false, features=["ev3"] 
 ctrlc = "3.4.5"
 strum = "0.26.3"
 strum_macros = "0.26.4"
+
+[[bin]]
+name = "stop"
