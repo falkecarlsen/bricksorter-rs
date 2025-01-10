@@ -88,24 +88,26 @@ impl SensorDebouncer {
     }
 }
 
-fn run_to_abs_pos(motor: TachoMotor, position: i32, speed: i32) -> Ev3Result<()> {
-    // check direction to go
-    let current_pos = motor.get_position()?;
-    if current_pos < position {
-        motor.set_duty_cycle_sp(speed)?;
-    } else {
-        motor.set_duty_cycle_sp(-speed)?;
-    }
+fn run_to_abs_pos(motor: &TachoMotor, angle: i32, speed: i32) -> Ev3Result<()> {
+    const TIMEOUT: i32 = 1000;
 
-    motor.wait(
-        || motor.get_position().unwrap() >= position,
-        Some(Duration::from_secs(5)),
+    println!(
+        "Running to rel angle: {} (curr: {}) with speed {}",
+        angle,
+        motor.get_position()?,
+        speed
     );
-    motor.stop()?;
+    motor.set_speed_sp(speed)?;
+    motor.run_to_rel_pos(Some(angle))?;
+    motor.wait_until_not_moving(Some(Duration::from_millis(TIMEOUT as u64)));
     Ok(())
 }
 
-fn schedule_timed_piston(kicker: TachoMotor, duration: Duration, brick_color: BrickColor) -> Ev3Result<()> {
+fn schedule_timed_piston(
+    kicker: &TachoMotor,
+    duration: Duration,
+    brick_color: BrickColor,
+) -> Ev3Result<()> {
     // encode direction (left, right, or no kick) by scalar
     let direction = match brick_color {
         BrickColor::None => 0,
@@ -117,22 +119,30 @@ fn schedule_timed_piston(kicker: TachoMotor, duration: Duration, brick_color: Br
         BrickColor::White => 0,
         BrickColor::Brown => 0,
     };
-    //
-    let time_now = std::time::Instant::now();
-    // do prime operation
-    run_to_abs_pos(kicker.clone(), 90 * direction, 20)?;
 
-    // delay for duration
-    while time_now.elapsed() < duration {
-        thread::sleep(Duration::from_millis(10));
-    }
+    let time_now = std::time::Instant::now();
+
+    let mut angular_movement = 0;
+
+    // do prime operation
+    run_to_abs_pos(&kicker, 90 * direction, 50)?;
+    angular_movement += 90 * direction;
+
+    // delay
+    std::thread::sleep(duration - time_now.elapsed());
 
     // kick
-    run_to_abs_pos(kicker.clone(), -90 * direction, 20)?;
+    run_to_abs_pos(&kicker, -45 * direction, 500)?;
+    angular_movement -= 45 * direction;
+
+    println!("Time to kick brick: {:?}", time_now.elapsed());
+
+    // return to initial position
+    run_to_abs_pos(&kicker, -angular_movement, 500)?;
+
 
     Ok(())
 }
-
 
 fn main() -> Ev3Result<()> {
     println!("Hello, EV3!");
@@ -141,12 +151,12 @@ fn main() -> Ev3Result<()> {
     let kicker = TachoMotor::get(MotorPort::OutB)?;
 
     conveyor.run_direct()?;
-    conveyor.set_duty_cycle_sp(45)?;
+    //conveyor.set_duty_cycle_sp(45)?;
 
-    // reset kicker rotary encoder position (ensure piston is aimed at center of conveyer on init)
+    // reset kicker rotary encoder position (ensure piston is aimed at center of conveyor on init)
     let _first_pos = kicker.set_position(0)?;
-
-    kicker.run_direct()?;
+    kicker.set_speed_sp(300)?;
+    kicker.set_stop_action(TachoMotor::STOP_ACTION_HOLD)?; // ensure angle is held on kicker
 
     let s1 = ColorSensor::get(SensorPort::In1)?;
     let s2 = ColorSensor::get(SensorPort::In2)?;
@@ -175,21 +185,19 @@ fn main() -> Ev3Result<()> {
     // thread for main loop only reading from debouncer
     let s1_debounce_reader = Arc::clone(&debouncer_s1);
     let s2_debounce_reader = Arc::clone(&debouncer_s2);
-    let main_handle = thread::spawn(move || {
-        loop {
-            println!(
-                "Most likely bricks: s1: {: <8} s2: {: <8}",
-                s1_debounce_reader.read().unwrap().get_most_likely_brick(),
-                s2_debounce_reader.read().unwrap().get_most_likely_brick()
-            );
-            if s2_debounce_reader.read().unwrap().get_most_likely_brick() != BrickColor::None {
-                let brick_color = s2_debounce_reader.read().unwrap().get_most_likely_brick();
-                println!("Kicking a brick: {:?}", brick_color);
-                schedule_timed_piston(kicker.clone(), Duration::from_secs(3), brick_color).unwrap();
-            };
+    let main_handle = thread::spawn(move || loop {
+        println!(
+            "Most likely bricks: s1: {: <8} s2: {: <8}",
+            s1_debounce_reader.read().unwrap().get_most_likely_brick(),
+            s2_debounce_reader.read().unwrap().get_most_likely_brick()
+        );
+        if s2_debounce_reader.read().unwrap().get_most_likely_brick() != BrickColor::None {
+            let brick_color = s2_debounce_reader.read().unwrap().get_most_likely_brick();
+            println!("Kicking a brick: {:?}", brick_color);
+            schedule_timed_piston(&kicker, Duration::from_secs(3), brick_color).unwrap();
+        };
 
-            std::thread::sleep(Duration::from_millis(200));
-        }
+        std::thread::sleep(Duration::from_millis(200));
     });
 
     debouncer_sensor_handle.join().unwrap();
