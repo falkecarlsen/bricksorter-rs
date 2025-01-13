@@ -8,6 +8,7 @@ use ev3dev_lang_rust::sensors::{ColorSensor, SensorPort};
 use ev3dev_lang_rust::Ev3Result;
 use std::sync::{Arc, RwLock};
 use std::thread;
+use std::thread::sleep;
 
 #[derive(PartialEq, Debug, Copy, Clone, strum_macros::Display)]
 enum BrickColor {
@@ -120,25 +121,33 @@ fn schedule_timed_piston(
         BrickColor::Brown => 0,
     };
 
+    if direction == 0 {
+        return Ok(()); // no kick
+    }
+
     let time_now = std::time::Instant::now();
 
     let mut angular_movement = 0;
 
     // do prime operation
-    run_to_abs_pos(&kicker, 90 * direction, 50)?;
-    angular_movement += 90 * direction;
+    angular_movement += 135 * direction;
+    run_to_abs_pos(&kicker, angular_movement, 125)?;
 
     // delay
-    std::thread::sleep(duration - time_now.elapsed());
+    sleep(duration - time_now.elapsed());
 
     // kick
-    run_to_abs_pos(&kicker, -45 * direction, 500)?;
-    angular_movement -= 45 * direction;
+    let kick_angle = -angular_movement - 45 * direction;
+    run_to_abs_pos(&kicker, kick_angle, 500)?;
+    angular_movement += kick_angle;
 
     println!("Time to kick brick: {:?}", time_now.elapsed());
 
+    sleep(Duration::from_secs(1));
+
     // return to initial position
     run_to_abs_pos(&kicker, -angular_movement, 500)?;
+    println!("angular movement: {}", angular_movement);
 
 
     Ok(())
@@ -151,9 +160,10 @@ fn main() -> Ev3Result<()> {
     let kicker = TachoMotor::get(MotorPort::OutB)?;
 
     conveyor.run_direct()?;
-    //conveyor.set_duty_cycle_sp(45)?;
+    conveyor.set_duty_cycle_sp(45)?;
 
     // reset kicker rotary encoder position (ensure piston is aimed at center of conveyor on init)
+    // note: positive degrees are counter-clockwise, negative are clockwise from persp. back motor
     let _first_pos = kicker.set_position(0)?;
     kicker.set_speed_sp(300)?;
     kicker.set_stop_action(TachoMotor::STOP_ACTION_HOLD)?; // ensure angle is held on kicker
@@ -194,7 +204,7 @@ fn main() -> Ev3Result<()> {
         if s2_debounce_reader.read().unwrap().get_most_likely_brick() != BrickColor::None {
             let brick_color = s2_debounce_reader.read().unwrap().get_most_likely_brick();
             println!("Kicking a brick: {:?}", brick_color);
-            schedule_timed_piston(&kicker, Duration::from_secs(3), brick_color).unwrap();
+            schedule_timed_piston(&kicker, Duration::from_millis(4500), brick_color).unwrap();
         };
 
         std::thread::sleep(Duration::from_millis(200));
