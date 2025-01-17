@@ -47,6 +47,7 @@ struct SensorDebouncer {
     readings: Vec<BrickColor>,
     window_size: usize,
     most_likely_brick: BrickColor,
+    brick_window: Vec<BrickColor>,
 }
 
 impl SensorDebouncer {
@@ -60,6 +61,7 @@ impl SensorDebouncer {
             readings,
             window_size,
             most_likely_brick: BrickColor::None,
+            brick_window: Vec::new(),
         }
     }
 
@@ -70,13 +72,30 @@ impl SensorDebouncer {
             self.readings.remove(0);
         }
         // most likely brick is the one that has been detected most frequently, use filter on readings to get most common
-        self.most_likely_brick = *self
+        let curr_brick = *self
             .readings
             .iter()
             .rev()
             .take(self.window_size)
             .max_by_key(|&x| self.readings.iter().filter(|&y| *y == *x).count())
             .unwrap_or(&BrickColor::None);
+        // update most likely brick
+        self.update_brick_window(curr_brick);
+        // most likely brick has been detected thrice and is not BrickColor::None
+        if self.readings.iter().filter(|&x| *x == curr_brick).count() >= 3 && curr_brick != BrickColor::None {
+            self.most_likely_brick = curr_brick;
+        } else { // if no brick has been detected thrice, set most likely brick to None
+            self.most_likely_brick = BrickColor::None;
+        }
+
+
+    }
+
+    fn update_brick_window(&mut self, brick: BrickColor) {
+        self.brick_window.push(brick);
+        if self.brick_window.len() > 5 {
+            self.brick_window.remove(0);
+        }
     }
 
     fn get_most_likely_brick(&self) -> BrickColor {
@@ -127,14 +146,24 @@ fn schedule_timed_piston(
 
     let time_now = std::time::Instant::now();
 
+    let prime_angle = 170;
     let mut angular_movement = 0;
 
     // do prime operation
-    angular_movement += 135 * direction;
-    run_to_abs_pos(&kicker, angular_movement, 125)?;
+    angular_movement += prime_angle * direction;
+    let max_speed = 150;
+    let steps = 3;
+    for i in 0..steps {
+        let speed = max_speed - i * (max_speed / steps);
+        run_to_abs_pos(&kicker, angular_movement / steps, speed)?;
+    }
 
-    // delay
-    sleep(duration - time_now.elapsed());
+    // delay, ensure no negative time
+    if time_now.elapsed() < duration {
+        sleep(duration - time_now.elapsed());
+    } else {
+        eprintln!("WARN: Prime operation took longer than required duration! {:?}", time_now.elapsed());
+    }
 
     // kick
     let kick_angle = -angular_movement - 45 * direction;
@@ -143,12 +172,11 @@ fn schedule_timed_piston(
 
     println!("Time to kick brick: {:?}", time_now.elapsed());
 
-    sleep(Duration::from_secs(1));
+    sleep(Duration::from_millis(500));
 
     // return to initial position
     run_to_abs_pos(&kicker, -angular_movement, 500)?;
     println!("angular movement: {}", angular_movement);
-
 
     Ok(())
 }
@@ -197,9 +225,11 @@ fn main() -> Ev3Result<()> {
     let s2_debounce_reader = Arc::clone(&debouncer_s2);
     let main_handle = thread::spawn(move || loop {
         println!(
-            "Most likely bricks: s1: {: <8} s2: {: <8}",
+            "Most likely bricks: s1: {: <8} s2: {: <8}, s1_bricks: {:?}, s2_bricks: {:?}",
             s1_debounce_reader.read().unwrap().get_most_likely_brick(),
-            s2_debounce_reader.read().unwrap().get_most_likely_brick()
+            s2_debounce_reader.read().unwrap().get_most_likely_brick(),
+            s1_debounce_reader.read().unwrap().brick_window,
+            s2_debounce_reader.read().unwrap().brick_window,
         );
         if s2_debounce_reader.read().unwrap().get_most_likely_brick() != BrickColor::None {
             let brick_color = s2_debounce_reader.read().unwrap().get_most_likely_brick();
