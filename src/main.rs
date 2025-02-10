@@ -4,7 +4,7 @@ extern crate ev3dev_lang_rust;
 
 use core::time::Duration;
 use ev3dev_lang_rust::motors::{MediumMotor, MotorPort, TachoMotor};
-use ev3dev_lang_rust::sensors::{ColorSensor, SensorPort};
+use ev3dev_lang_rust::sensors::{ColorSensor, LightSensor, Sensor, SensorPort};
 use ev3dev_lang_rust::Ev3Result;
 use std::sync::{Arc, RwLock};
 use std::thread;
@@ -111,6 +111,7 @@ impl SensorDebouncer {
 fn run_to_abs_pos(motor: &TachoMotor, angle: i32, speed: i32) -> Ev3Result<()> {
     const TIMEOUT: i32 = 1000;
 
+    #[cfg(feature = "debug")]
     println!(
         "Running to rel angle: {} (curr: {}) with speed {}",
         angle,
@@ -151,8 +152,8 @@ fn schedule_timed_piston(
 
     // do prime operation
     angular_movement += prime_angle * direction;
-    let max_speed = 150;
-    let steps = 3;
+    let max_speed = 120;
+    let steps = 5;
     for i in 0..steps {
         let speed = max_speed - i * (max_speed / steps);
         run_to_abs_pos(&kicker, angular_movement / steps, speed)?;
@@ -170,25 +171,46 @@ fn schedule_timed_piston(
     run_to_abs_pos(&kicker, kick_angle, 500)?;
     angular_movement += kick_angle;
 
+    #[cfg(feature = "debug")]
     println!("Time to kick brick: {:?}", time_now.elapsed());
 
     sleep(Duration::from_millis(500));
 
     // return to initial position
     run_to_abs_pos(&kicker, -angular_movement, 500)?;
+
+    #[cfg(feature = "debug")]
     println!("angular movement: {}", angular_movement);
 
     Ok(())
 }
 
 fn main() -> Ev3Result<()> {
-    println!("Hello, EV3!");
-    // Get large motor on port outA.
+    println!("Bricksorter-rs starting...");
+
+    let conveyor_speed = 45;
     let conveyor = MediumMotor::get(MotorPort::OutA)?;
     let kicker = TachoMotor::get(MotorPort::OutB)?;
 
+    let s1 = ColorSensor::get(SensorPort::In1)?;
+    let s2 = ColorSensor::get(SensorPort::In2)?;
+    s1.set_mode_col_color()?;
+    s2.set_mode_col_color()?;
+    let s3 = LightSensor::get(SensorPort::In3)?;
+
+    // get base ambient light level over 5 samples, avg'ed out
+    let mut base_light_level = 0;
+    for _ in 0..10 {
+        base_light_level += s3.get_value0().unwrap();
+        sleep(Duration::from_millis(50));
+    }
+
+    let base_light_level = base_light_level / 10;
+    println!("Base light level: {}", base_light_level);
+    let s3_v_bias = 50;
+
     conveyor.run_direct()?;
-    conveyor.set_duty_cycle_sp(45)?;
+    conveyor.set_duty_cycle_sp(conveyor_speed)?;
 
     // reset kicker rotary encoder position (ensure piston is aimed at center of conveyor on init)
     // note: positive degrees are counter-clockwise, negative are clockwise from persp. back motor
@@ -196,11 +218,6 @@ fn main() -> Ev3Result<()> {
     kicker.set_speed_sp(300)?;
     kicker.set_stop_action(TachoMotor::STOP_ACTION_HOLD)?; // ensure angle is held on kicker
 
-    let s1 = ColorSensor::get(SensorPort::In1)?;
-    let s2 = ColorSensor::get(SensorPort::In2)?;
-
-    s1.set_mode_col_color()?;
-    s2.set_mode_col_color()?;
 
     let debouncer_s1 = Arc::new(RwLock::new(SensorDebouncer::new(10)));
     let debouncer_s2 = Arc::new(RwLock::new(SensorDebouncer::new(10)));
@@ -217,13 +234,15 @@ fn main() -> Ev3Result<()> {
             .write()
             .unwrap()
             .update(s2.get_color_enum());
-        std::thread::sleep(Duration::from_millis(16));
+        sleep(Duration::from_millis(16));
     });
+
 
     // thread for main loop only reading from debouncer
     let s1_debounce_reader = Arc::clone(&debouncer_s1);
     let s2_debounce_reader = Arc::clone(&debouncer_s2);
     let main_handle = thread::spawn(move || loop {
+        #[cfg(feature = "debug")]
         println!(
             "Most likely bricks: s1: {: <8} s2: {: <8}, s1_bricks: {:?}, s2_bricks: {:?}",
             s1_debounce_reader.read().unwrap().get_most_likely_brick(),
@@ -231,13 +250,27 @@ fn main() -> Ev3Result<()> {
             s1_debounce_reader.read().unwrap().brick_window,
             s2_debounce_reader.read().unwrap().brick_window,
         );
+
+        // pause to drill object on conveyor if light beam is disturbed
+        if cfg!(feature = "drill") && i32::abs(s3.get_value0().unwrap() - base_light_level) > s3_v_bias {
+            println!("Drilling brick on conveyor!");
+            conveyor.set_duty_cycle_sp(0).unwrap();
+            sleep(Duration::from_millis(1000));
+            conveyor.set_duty_cycle_sp(conveyor_speed).unwrap();
+            // wait for object to be removed before ending routine
+            while i32::abs(s3.get_value0().unwrap() - base_light_level) > s3_v_bias {
+                sleep(Duration::from_millis(100));
+            }
+        }
+
+        // schedule kick if brick is detected
         if s2_debounce_reader.read().unwrap().get_most_likely_brick() != BrickColor::None {
             let brick_color = s2_debounce_reader.read().unwrap().get_most_likely_brick();
             println!("Kicking a brick: {:?}", brick_color);
-            schedule_timed_piston(&kicker, Duration::from_millis(4500), brick_color).unwrap();
+            schedule_timed_piston(&kicker, Duration::from_millis(4900), brick_color).unwrap();
         };
 
-        std::thread::sleep(Duration::from_millis(200));
+        sleep(Duration::from_millis(200));
     });
 
     debouncer_sensor_handle.join().unwrap();

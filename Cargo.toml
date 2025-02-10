@@ -9,9 +9,8 @@ strum = "0.26.3"
 strum_macros = "0.26.4"
 
 [features]
-default = ["kick"]
 drill = []  # Adds simulated waiting at s2 to simulate drilling
-kick = []  # Adds sort-by-kicking based on s3 color sensor
+debug = []  # Debug output
 
 [[bin]]
 name = "stop"
