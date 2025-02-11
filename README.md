@@ -3,7 +3,8 @@ In 2000 ["Model-checking real-time control programs: verifying LEGO MINDSTORMS s
 
 ![LEGO MINDSTORMS RCX DEMO](figures/rcx-demo.png)
 
-This project is a Rust implementation on the EV3 brick enhanced with ev3dev (Debian Linux for the EV3 platform), using over ev3dev-lang-rust bindings to write embedded firmware for the EV3 brick in Rust using ev3dev-lang-rust's Hardware Abstraction Layer (HAL).
+This project is a Rust implementation on the EV3 brick enhanced with ev3dev (Debian Linux for the EV3 platform), 
+using ev3dev-lang-rust bindings to write embedded firmware for the EV3 brick in Rust using ev3dev-lang-rust's Hardware Abstraction Layer (HAL) for EV3 and assorted sensors and motors.
 
 ![LEGO MINDSTORMS EV3 DEMO](figures/ev3-bricksorter-annotated.jpg)
 
@@ -17,8 +18,11 @@ This project is a Rust implementation on the EV3 brick enhanced with ev3dev (Deb
 1. Turn on the EV3 brick (hold down middle button)
 2. Wait until Debian has booted. You will be presented with a menu.
 3. Navigate to shell wrapper:
-   1. 'File Browser' -> 'run.sh*'
-   2. Execute 'run.sh' by pressing middle button
+   1. 'File Browser' -> 'bricksorter-*' (choose between below variants)
+      - `bricksorter-vanilla` (sorts, with no drilling operation)
+      - `bricksorter-drill` (sorts, with drilling operation)
+      - `bricksorter-debug-drill` (sorts, drills, and puts debug output to console on EV3)
+   2. Execute selected binary by pressing middle button
 4. Program will start and you can place bricks on the belt and watch them being sorted (optionally also _drilled_).
 5. When finished, press back button to exit
 6. To shut down brick, press back button on home-menu to bring up power menu and select 'Power Off'
@@ -34,6 +38,7 @@ This project is a Rust implementation on the EV3 brick enhanced with ev3dev (Deb
 
 ## Replication on raw EV3 brick
 Use the following if recreating the demo from scratch:
+
 1. Install ev3dev on your EV3 brick
 2. Configure ethernet-over-USB to your Linux machine
 3. Setup SSH to your EV3 brick (`robot:maker`)
