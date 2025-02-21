@@ -27,7 +27,6 @@ using ev3dev-lang-rust bindings to write embedded firmware for the EV3 brick in 
 5. When finished, press back button to exit
 6. To shut down brick, press back button on home-menu to bring up power menu and select 'Power Off'
 
-
 ## Flash new firmware
 1. Turn on the EV3 brick (hold down middle button)
 2. Wait until Debian has booted and you have ethernet-over-USB interface up

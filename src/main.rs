@@ -133,12 +133,12 @@ fn schedule_timed_piston(
     let direction = match brick_color {
         BrickColor::None => 0,
         BrickColor::Black => 0,
-        BrickColor::Blue => -1,
-        BrickColor::Green => 0,
-        BrickColor::Yellow => 1,
+        BrickColor::Blue => 1,
+        BrickColor::Green => 1,
+        BrickColor::Yellow => -1,
         BrickColor::Red => -1,
         BrickColor::White => 0,
-        BrickColor::Brown => 0,
+        BrickColor::Brown => 1,
     };
 
     if direction == 0 {
